@@ -15,14 +15,15 @@ task dev:up       # Local dev with hot reload
 ## PRs
 
 - Branch off `main`, never push direct.
-- Conventional Commits, capitalized subject: `feat: Add Foo`, `fix: Resolve Bar`.
+- Conventional Commits, capitalized subject: `feat: Add Foo`, `fix: Resolve Bar`, `upstream: Cherry-Pick Harbor Fix`.
 - DCO sign-off required: `git commit -s`.
 - **Squash and merge only** — other merge types break release-please.
 - No `Co-Authored-By` / AI attribution trailers.
+- **New features (`feat:`) must add a `## Release Notes` section to the PR description.** Its prose is extracted and rendered under `## Highlights` on the GitHub Release. See CONTRIBUTING.md → "Adding Release Notes to Your PR".
 
 ## Release-please
 
-`feat:` → minor, `fix:` → patch, `feat!:` / `BREAKING CHANGE:` → major. `ci:`, `build:`, `chore:`, `test:` are hidden from release notes.
+`feat:` → minor, `fix:` / `upstream:` → patch, `feat!:` / `BREAKING CHANGE:` → major. `ci:`, `build:`, `chore:`, `test:` are hidden from release notes.
 
 **exclude-paths:** changes touching only `.github/`, `docs/`, or `tests/` don't bump version — use `ci:` for CI-only changes.
 
