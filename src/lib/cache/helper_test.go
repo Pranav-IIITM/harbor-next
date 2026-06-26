@@ -82,10 +82,16 @@ func (suite *FetchOrSaveTestSuite) TestSaveError() {
 	suite.Equal("str", str)
 }
 
-func (suite *FetchOrSaveTestSuite) TestSaveCalledOnlyOneTime() {
+// Save is deduplicated across concurrent cold-miss callers: singleflight
+// collapses overlapping callers into a single build+save, so Save runs far
+// fewer times than there are callers. It is not strictly once: a caller that
+// reaches the group after a previous build already finished legitimately builds
+// and saves again, so the exact count is not guaranteed.
+func (suite *FetchOrSaveTestSuite) TestSaveDeduplicatedAcrossConcurrentCallers() {
 	c := &mockCache{}
 
 	var data sync.Map
+	var saveCalls atomic.Int32
 
 	mock.OnAnything(c, "Fetch").Return(func(ctx context.Context, key string, value any) error {
 		_, ok := data.Load(key)
@@ -97,14 +103,16 @@ func (suite *FetchOrSaveTestSuite) TestSaveCalledOnlyOneTime() {
 	})
 
 	mock.OnAnything(c, "Save").Return(func(ctx context.Context, key string, value any, exp ...time.Duration) error {
+		saveCalls.Add(1)
 		data.Store(key, value)
 
 		return nil
 	})
 
+	const n = 1000
 	var wg sync.WaitGroup
 
-	for range 1000 {
+	for range n {
 		wg.Add(1)
 
 		go func() {
@@ -120,7 +128,9 @@ func (suite *FetchOrSaveTestSuite) TestSaveCalledOnlyOneTime() {
 
 	wg.Wait()
 
-	c.AssertNumberOfCalls(suite.T(), "Save", 1)
+	saves := saveCalls.Load()
+	suite.GreaterOrEqual(saves, int32(1))
+	suite.Less(saves, int32(n), "singleflight must deduplicate concurrent saves")
 }
 
 // Save must be called even if the HTTP request context is already canceled,
@@ -143,6 +153,29 @@ func (suite *FetchOrSaveTestSuite) TestSaveCalledEvenWhenContextCanceled() {
 	c.AssertNumberOfCalls(suite.T(), "Save", 1)
 }
 
+<<<<<<< HEAD
+// Save must be called even if the HTTP request context is already canceled,
+// because helper.go uses context.WithoutCancel before calling Save.
+func (suite *FetchOrSaveTestSuite) TestSaveCalledEvenWhenContextCanceled() {
+	c := &mockCache{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // simulate a canceled HTTP request context
+
+	mock.OnAnything(c, "Fetch").Return(ErrNotFound)
+	mock.OnAnything(c, "Save").Return(nil)
+
+	var str string
+	err := FetchOrSave(ctx, c, "key-canceled", &str, func() (any, error) {
+		return "str", nil
+	})
+
+	suite.Nil(err)
+	suite.Equal("str", str)
+	c.AssertNumberOfCalls(suite.T(), "Save", 1)
+}
+
+=======
+>>>>>>> 8e3ca8f47 (fix(cache): replace keyMutex with singleflight and avoid canceling cache (#23336))
 // The shared singleflight result is copied to each caller through the codec,
 // so a builder result the codec cannot encode must surface as an error.
 func (suite *FetchOrSaveTestSuite) TestBuildResultNotEncodable() {
@@ -159,6 +192,7 @@ func (suite *FetchOrSaveTestSuite) TestBuildResultNotEncodable() {
 	suite.Error(err)
 }
 
+<<<<<<< HEAD
 // On a concurrent cold miss, builder runs exactly once (singleflight dedup)
 // and every concurrent caller receives the built value in its own pointer.
 func (suite *FetchOrSaveTestSuite) TestConcurrentCallersShareResult() {
@@ -187,6 +221,35 @@ func (suite *FetchOrSaveTestSuite) TestConcurrentCallersShareResult() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+=======
+// On a concurrent cold miss, singleflight collapses the overlapping callers
+// into far fewer builder executions than callers, and every caller receives the
+// built value copied into its own pointer via the codec.
+func (suite *FetchOrSaveTestSuite) TestConcurrentCallersShareResult() {
+	c := &mockCache{}
+	var builderCalls atomic.Int32
+
+	mock.OnAnything(c, "Fetch").Return(ErrNotFound)
+	mock.OnAnything(c, "Save").Return(nil)
+
+	const n = 100
+	var wg, ready sync.WaitGroup
+	results := make([]string, n)
+
+	// start is a release barrier: every goroutine blocks on it until all of
+	// them are spawned and waiting, so they enter FetchOrSave together and
+	// genuinely overlap inside the singleflight window (no flakiness from a
+	// late goroutine missing the in-flight call on a loaded runner).
+	start := make(chan struct{})
+
+	for i := range n {
+		wg.Add(1)
+		ready.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ready.Done()
+			<-start
+>>>>>>> 8e3ca8f47 (fix(cache): replace keyMutex with singleflight and avoid canceling cache (#23336))
 			var str string
 			FetchOrSave(suite.ctx, c, "key", &str, func() (any, error) {
 				builderCalls.Add(1)
@@ -196,9 +259,23 @@ func (suite *FetchOrSaveTestSuite) TestConcurrentCallersShareResult() {
 			results[idx] = str
 		}(i)
 	}
+<<<<<<< HEAD
 	wg.Wait()
 
 	suite.Equal(int32(1), builderCalls.Load(), "builder must run exactly once for concurrent callers")
+=======
+	ready.Wait()
+	close(start)
+	wg.Wait()
+
+	// singleflight must collapse the concurrent cold miss into far fewer builds
+	// than callers. An exact "== 1" assertion would be racy: a caller that
+	// reaches the group after the leader's build already returned legitimately
+	// starts a new build, so under load the count can be >1 without any bug.
+	calls := builderCalls.Load()
+	suite.GreaterOrEqual(calls, int32(1))
+	suite.Less(calls, int32(n), "singleflight must deduplicate concurrent builds")
+>>>>>>> 8e3ca8f47 (fix(cache): replace keyMutex with singleflight and avoid canceling cache (#23336))
 	for _, r := range results {
 		suite.Equal("built", r, "every caller must receive the built value")
 	}

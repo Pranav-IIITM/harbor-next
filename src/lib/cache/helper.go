@@ -20,9 +20,17 @@ import (
 	"fmt"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/goharbor/harbor/src/lib/log"
 )
 
+<<<<<<< HEAD
+=======
+// fetchOrSaveGroup deduplicates concurrent FetchOrSave builds for the same key.
+var fetchOrSaveGroup singleflight.Group
+
+>>>>>>> 8e3ca8f47 (fix(cache): replace keyMutex with singleflight and avoid canceling cache (#23336))
 // FetchOrSave retrieves the value for the key if present in the cache.
 // Otherwise, it builds the value with the builder, saves it to the cache and
 // populates value with the built result. Concurrent calls for the same key
